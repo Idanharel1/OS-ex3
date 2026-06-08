@@ -541,6 +541,13 @@ void virtio_gpu_init(void)
     printf("virtio_gpu: \"Hello World\" displayed on 640x480 window\n");
 }
 
+// ── Public: return the kernel framebuffer page array ─────────────────
+void **
+virtio_gpu_get_fb(void)
+{
+    return fb;
+}
+
 // ── Public: flush the kernel fb[] to the display ─────────────────────
 // Called by display_daemon.  Sends TRANSFER_TO_HOST_2D + RESOURCE_FLUSH.
 void virtio_gpu_commit(void)
