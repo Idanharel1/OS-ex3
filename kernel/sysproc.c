@@ -97,11 +97,45 @@ sys_uptime(void)
 // 1,228,800 bytes).  The buffer must already be fully mapped in the
 // calling process's address space.
 //
-// TODO: Students implement this syscall.
 uint64
 sys_flip_display(void)
 {
-  return -1;
+  uint64 buf;
+  argaddr(0, &buf);
+
+  struct proc *p = myproc();
+
+  // buf must be page-aligned: we translate it one page at a time, so an
+  // unaligned base would not line up with page boundaries.
+  if (buf == 0 || buf % PGSIZE != 0)
+    return -1;
+
+  // The whole buffer must fit below the trapframe.
+  uint64 fbsize = (uint64)GPU_FB_PAGES * PGSIZE;
+  if (buf + fbsize > TRAPFRAME || buf + fbsize < buf)
+    return -1;
+
+  // Translate every page of the user buffer to its physical address.
+  // walkaddr() returns 0 unless the page is mapped with PTE_U, so this
+  // also validates that all GPU_FB_PAGES pages are present and
+  // user-accessible.
+  uint64 pas[GPU_FB_PAGES];
+  for (int i = 0; i < GPU_FB_PAGES; i++) {
+    uint64 pa = walkaddr(p->pagetable, buf + (uint64)i * PGSIZE);
+    if (pa == 0)
+      return -1;
+    pas[i] = pa;
+  }
+
+  // Re-point the display device at the user's pages (detach + attach).
+  virtio_gpu_flip(pas, GPU_FB_PAGES);
+
+  // Remember which buffer the GPU now reads from, so that if the process
+  // exits we can copy its last frame into the kernel fb[] and restore the
+  // kernel backing before these pages are freed.
+  p->flip_va = buf;
+
+  return 0;
 }
 
 // sys_map_display: map the GPU's kernel framebuffer pages (fb[]) directly

@@ -158,6 +158,22 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  // If this process re-pointed the GPU at its own pages via flip_display,
+  // copy its last displayed frame into the kernel fb[] and restore the
+  // kernel backing before those pages are freed.  Otherwise the device
+  // would keep reading from pages handed back to the allocator (and the
+  // final image would vanish on exit).  Must run while the page table is
+  // still intact so we can translate flip_va.
+  if(p->flip_va && p->pagetable){
+    uint64 srcs[GPU_FB_PAGES];
+    int ok = 1;
+    for(int i = 0; i < GPU_FB_PAGES; i++){
+      uint64 pa = walkaddr(p->pagetable, p->flip_va + (uint64)i * PGSIZE);
+      if(pa == 0){ ok = 0; break; }
+      srcs[i] = pa;
+    }
+    virtio_gpu_restore(ok ? srcs : 0);
+  }
   if(p->pagetable) {
     if(p->fb_va)
       uvmunmap(p->pagetable, p->fb_va, GPU_FB_PAGES, 0);
@@ -166,6 +182,7 @@ freeproc(struct proc *p)
   p->pagetable = 0;
   p->sz = 0;
   p->fb_va = 0;
+  p->flip_va = 0;
   p->pid = 0;
   p->parent = 0;
   p->name[0] = 0;
