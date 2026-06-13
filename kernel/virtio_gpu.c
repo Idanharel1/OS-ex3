@@ -291,7 +291,7 @@ static void gpu_send(void *req, int req_len);
 // ── GPU command helpers ───────────────────────────────────────────────
 
 // Send RESOURCE_DETACH_BACKING for the display resource.
-static void __attribute__((unused))
+static void
 gpu_cmd_detach(void)
 {
     static struct virtio_gpu_resource_detach_backing detach;
@@ -546,6 +546,52 @@ void **
 virtio_gpu_get_fb(void)
 {
     return fb;
+}
+
+// ── Public: zero-copy page flip ──────────────────────────────────────
+// Re-point the display resource's backing list at the n physical pages
+// listed in pas[].  No pixel data is copied; only the device's backing
+// list is rewritten.  n must equal FB_PAGES.
+//
+// The GPU spec has no atomic "replace backing" command, so we detach the
+// current backing first and then attach the new one.  Both commands go
+// through gpu_send(), which holds gpu_lock, so a flip cannot interleave
+// with the display daemon's commit.
+void
+virtio_gpu_flip(uint64 *pas, int n)
+{
+    static struct virtio_gpu_mem_entry entries[FB_PAGES];
+    for (int i = 0; i < n; i++) {
+        entries[i].addr   = pas[i];
+        entries[i].length = PGSIZE;
+    }
+    gpu_cmd_detach();
+    gpu_cmd_attach(entries, n);
+}
+
+// ── Public: restore the kernel framebuffer backing ───────────────────
+// Re-point the display resource at the kernel-owned fb[] pages.  Used
+// when a process that previously flipped exits, so the device never
+// reads from pages that are about to be freed back to the allocator.
+//
+// srcs[], if non-zero, is an array of FB_PAGES physical page addresses
+// holding the process's last displayed frame; its contents are copied
+// into fb[] first so the final image survives the process exit.  Pass 0
+// to restore the existing fb[] contents unchanged.
+void
+virtio_gpu_restore(uint64 *srcs)
+{
+    if (srcs) {
+        for (int i = 0; i < FB_PAGES; i++)
+            memmove(fb[i], (void *)srcs[i], PGSIZE);
+    }
+    static struct virtio_gpu_mem_entry fb_entries[FB_PAGES];
+    for (int i = 0; i < FB_PAGES; i++) {
+        fb_entries[i].addr   = (uint64)fb[i];
+        fb_entries[i].length = PGSIZE;
+    }
+    gpu_cmd_detach();
+    gpu_cmd_attach(fb_entries, FB_PAGES);
 }
 
 // ── Public: flush the kernel fb[] to the display ─────────────────────
