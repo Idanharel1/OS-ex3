@@ -111,10 +111,43 @@ sys_flip_display(void)
 //   Pass 0 to let the kernel auto-select the next available VA above p->sz.
 //
 // Returns the mapped virtual address on success, (uint64)-1 on failure.
-//
-// TODO: Students implement this syscall.
 uint64
 sys_map_display(void)
 {
-  return -1;
+  uint64 addr;
+  argaddr(0, &addr);
+
+  struct proc *p = myproc();
+  void **fb = virtio_gpu_get_fb();
+  uint64 fbsize = (uint64)GPU_FB_PAGES * PGSIZE;
+
+  if (addr == 0) {
+    addr = PGROUNDUP(p->sz);
+  } else {
+    if (addr % PGSIZE != 0)
+      return (uint64)-1;
+    // Collision check: none of the pages in [addr, addr+fbsize) may be mapped
+    for (uint64 va = addr; va < addr + fbsize; va += PGSIZE) {
+      if (walkaddr(p->pagetable, va) != 0)
+        return (uint64)-1;
+    }
+  }
+
+  if (addr + fbsize > TRAPFRAME)
+    return (uint64)-1;
+
+  // Map each fb page (physically non-contiguous) into user space
+  for (int i = 0; i < GPU_FB_PAGES; i++) {
+    uint64 pa = (uint64)fb[i];
+    if (mappages(p->pagetable, addr + (uint64)i * PGSIZE, PGSIZE, pa,
+                 PTE_U | PTE_R | PTE_W) != 0) {
+      // Partial failure: remove already-installed mappings without freeing pages
+      if (i > 0)
+        uvmunmap(p->pagetable, addr, i, 0);
+      return (uint64)-1;
+    }
+  }
+
+  p->fb_va = addr;
+  return addr;
 }
