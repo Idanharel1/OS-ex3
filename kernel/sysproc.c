@@ -114,11 +114,6 @@ sys_flip_display(void)
   uint64 fbsize = (uint64)GPU_FB_PAGES * PGSIZE;
   if (buf + fbsize > TRAPFRAME || buf + fbsize < buf)
     return -1;
-
-  // Translate every page of the user buffer to its physical address.
-  // walkaddr() returns 0 unless the page is mapped with PTE_U, so this
-  // also validates that all GPU_FB_PAGES pages are present and
-  // user-accessible.
   uint64 pas[GPU_FB_PAGES];
   for (int i = 0; i < GPU_FB_PAGES; i++) {
     uint64 pa = walkaddr(p->pagetable, buf + (uint64)i * PGSIZE);
@@ -129,10 +124,6 @@ sys_flip_display(void)
 
   // Re-point the display device at the user's pages (detach + attach).
   virtio_gpu_flip(pas, GPU_FB_PAGES);
-
-  // Remember which buffer the GPU now reads from, so that if the process
-  // exits we can copy its last frame into the kernel fb[] and restore the
-  // kernel backing before these pages are freed.
   p->flip_va = buf;
 
   return 0;
@@ -140,11 +131,6 @@ sys_flip_display(void)
 
 // sys_map_display: map the GPU's kernel framebuffer pages (fb[]) directly
 // into the calling process's address space with PTE_U|PTE_R|PTE_W.
-//
-// Syscall argument 0: desired user virtual address (must be page-aligned).
-//   Pass 0 to let the kernel auto-select the next available VA above p->sz.
-//
-// Returns the mapped virtual address on success, (uint64)-1 on failure.
 uint64
 sys_map_display(void)
 {

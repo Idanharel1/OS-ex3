@@ -158,12 +158,6 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  // If this process re-pointed the GPU at its own pages via flip_display,
-  // copy its last displayed frame into the kernel fb[] and restore the
-  // kernel backing before those pages are freed.  Otherwise the device
-  // would keep reading from pages handed back to the allocator (and the
-  // final image would vanish on exit).  Must run while the page table is
-  // still intact so we can translate flip_va.
   if(p->flip_va && p->pagetable){
     uint64 srcs[GPU_FB_PAGES];
     int ok = 1;

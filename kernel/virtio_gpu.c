@@ -548,15 +548,6 @@ virtio_gpu_get_fb(void)
     return fb;
 }
 
-// ── Public: zero-copy page flip ──────────────────────────────────────
-// Re-point the display resource's backing list at the n physical pages
-// listed in pas[].  No pixel data is copied; only the device's backing
-// list is rewritten.  n must equal FB_PAGES.
-//
-// The GPU spec has no atomic "replace backing" command, so we detach the
-// current backing first and then attach the new one.  Both commands go
-// through gpu_send(), which holds gpu_lock, so a flip cannot interleave
-// with the display daemon's commit.
 void
 virtio_gpu_flip(uint64 *pas, int n)
 {
@@ -569,15 +560,6 @@ virtio_gpu_flip(uint64 *pas, int n)
     gpu_cmd_attach(entries, n);
 }
 
-// ── Public: restore the kernel framebuffer backing ───────────────────
-// Re-point the display resource at the kernel-owned fb[] pages.  Used
-// when a process that previously flipped exits, so the device never
-// reads from pages that are about to be freed back to the allocator.
-//
-// srcs[], if non-zero, is an array of FB_PAGES physical page addresses
-// holding the process's last displayed frame; its contents are copied
-// into fb[] first so the final image survives the process exit.  Pass 0
-// to restore the existing fb[] contents unchanged.
 void
 virtio_gpu_restore(uint64 *srcs)
 {
@@ -601,14 +583,6 @@ void virtio_gpu_commit(void)
     gpu_transfer_flush();
 }
 
-// ── GPU daemon ────────────────────────────────────────────────────────
-// Kernel process started by kproc_create().  Wakes every DISPLAY_DAEMON_TICKS
-// timer ticks and issues TRANSFER_TO_HOST_2D + RESOURCE_FLUSH so that
-// writes made through map_display() automatically appear on the display
-// without any user-space flush call.
-//
-// Commit period: DISPLAY_DAEMON_TICKS ticks.  xv6's timer fires every
-// ~1/10th of a second at QEMU's default rate, giving ~10fps.
 #define DISPLAY_DAEMON_TICKS 1
 
 void display_daemon(void)
